@@ -1,0 +1,6 @@
+Segment ID,Segment Name,Count,Avg Age,Avg Income,Avg Net Worth,Avg Risk Tolerance,Avg Time Horizon,Retired %,Dependents %,Preferred Equity,Preferred Bonds,Preferred Alts,Preferred Cash
+0,Young Aggressive Accumulators,125,47,"$75,627","$2,950,687",3.0/5,20yr,10%,40%,81%,4%,15%,0%
+1,Mid-Career Balanced Families,1800,48,"$74,101","$262,976",3.1/5,20yr,0%,100%,80%,6%,14%,0%
+2,Pre-Retiree Conservatives,1173,47,"$78,080","$262,644",3.1/5,30yr,0%,0%,88%,-1%,14%,0%
+3,High-Net-Worth Diversifiers,736,49,"$76,779","$269,330",3.1/5,20yr,100%,47%,68%,18%,14%,0%
+4,Retired Income Seekers,1166,49,"$74,660","$266,752",3.0/5,10yr,0%,0%,79%,7%,14%,1%

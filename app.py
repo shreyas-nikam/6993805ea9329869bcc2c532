@@ -12,7 +12,8 @@ from xgboost import XGBRegressor
 from source import *
 
 # Page Configuration
-st.set_page_config(page_title="QuLab: Lab 51: Robo-Advisor Simulation", layout="wide")
+st.set_page_config(
+    page_title="QuLab: Lab 51: Robo-Advisor Simulation", layout="wide")
 
 # Sidebar Header
 st.sidebar.image("https://www.quantuniversity.com/assets/img/logo5.jpg")
@@ -44,9 +45,11 @@ if 'per_asset_mae_df' not in st.session_state:
 if 'n_violations_count' not in st.session_state:
     st.session_state.n_violations_count = 0
 if 'feature_cols' not in st.session_state:
-    st.session_state.feature_cols = ['age', 'income', 'net_worth', 'risk_tolerance', 'time_horizon', 'has_dependents', 'is_retired', 'tax_bracket']
+    st.session_state.feature_cols = ['age', 'income', 'net_worth', 'risk_tolerance',
+                                     'time_horizon', 'has_dependents', 'is_retired', 'tax_bracket']
 if 'target_cols' not in st.session_state:
-    st.session_state.target_cols = ['pref_equity', 'pref_bonds', 'pref_alts', 'pref_cash']
+    st.session_state.target_cols = [
+        'pref_equity', 'pref_bonds', 'pref_alts', 'pref_cash']
 if 'current_page' not in st.session_state:
     st.session_state.current_page = "Introduction"
 if 'data_generated' not in st.session_state:
@@ -78,15 +81,18 @@ try:
 except ValueError:
     current_index = 0
 
-selected_page = st.sidebar.selectbox("Navigate Steps:", pages, index=current_index)
+selected_page = st.sidebar.selectbox(
+    "Navigate Steps:", pages, index=current_index)
 st.session_state.current_page = selected_page
 
 st.sidebar.markdown("---")
-st.sidebar.info("As a CFA Charterholder, follow the steps sequentially to evaluate the robo-advisor's capabilities.")
+st.sidebar.info(
+    "As a CFA Charterholder, follow the steps sequentially to evaluate the robo-advisor's capabilities.")
 
 # Page: Introduction
 if st.session_state.current_page == "Introduction":
-    st.title("Robo-Advisor Simulation: Modernizing Wealth Management at Veridian Financial")
+    st.title(
+        "Robo-Advisor Simulation: Modernizing Wealth Management at Veridian Financial")
 
     st.markdown(f"""
     Welcome, CFA Charterholder and Senior Investment Analyst at Veridian Financial!
@@ -102,10 +108,6 @@ if st.session_state.current_page == "Introduction":
     This hands-on simulation will demonstrate how AI can personalize investment advice at scale, improve client fit compared to generic rules, and critically, how regulatory suitability and ethical considerations are embedded into the AI workflow. It provides insight into automating Investment Policy Statement (IPS) construction, enhancing risk management, and ensuring regulatory compliance for client-facing AI.
     """)
 
-    st.markdown("---")
-    st.subheader("Workflow Overview")
-    st.image("https://raw.githubusercontent.com/streamlit/docs/main/docs/static/img/workflow_overview.png", caption="Robo-Advisor Workflow Steps")
-    st.markdown("Please proceed to **'1. Client Data Generation'** in the sidebar to begin the simulation.")
 
 # Page: 1. Client Data Generation
 elif st.session_state.current_page == "1. Client Data Generation":
@@ -124,28 +126,62 @@ elif st.session_state.current_page == "1. Client Data Generation":
 
     st.subheader("Generate Client Data")
 
-    if st.button("Generate 5,000 Client Profiles"):
-        with st.spinner("Generating client data..."):
-            # Call function from source.py
-            clients = generate_client_data(n_clients=5000)
+    # Check if cached data exists
+    cached_data_status = check_data_exists()
+
+    # Auto-load cached data on page load if available and not yet loaded
+    if cached_data_status['clients_data'] and not st.session_state.data_generated:
+        clients = load_client_data()
+        if clients is not None:
             st.session_state.clients_df = clients
             st.session_state.data_generated = True
-        st.success("Client data generated successfully!")
+            st.info(
+                "✅ Client data loaded from cache. Click 'Regenerate' to create new data.")
+
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("Generate 5,000 Client Profiles", use_container_width=True):
+            with st.spinner("Generating client data..."):
+                # Call function from source.py
+                clients = generate_client_data(n_clients=5000)
+                st.session_state.clients_df = clients
+                st.session_state.data_generated = True
+                # Save the generated data
+                save_client_data(clients)
+            st.success("Client data generated and saved successfully!")
+
+    with col2:
+        if st.button("Clear Cached Data", use_container_width=True):
+            clear_cached_data()
+            st.session_state.data_generated = False
+            st.session_state.clients_df = None
+            st.session_state.segments_calculated = False
+            st.session_state.allocations_predicted = False
+            st.session_state.suitability_checked = False
+            st.success("Cached data cleared!")
+            st.rerun()
 
     if st.session_state.data_generated:
         st.subheader("Generated Client Profiles (First 5 Rows)")
         st.dataframe(st.session_state.clients_df.head())
 
         st.subheader("Summary Statistics")
-        st.markdown(f"**Generated {len(st.session_state.clients_df)} client profiles.**")
-        st.markdown(f"**Age range:** {st.session_state.clients_df['age'].min()}-{st.session_state.clients_df['age'].max()}")
+        st.markdown(
+            f"**Generated {len(st.session_state.clients_df)} client profiles.**")
+        st.markdown(
+            f"**Age range:** {st.session_state.clients_df['age'].min()}-{st.session_state.clients_df['age'].max()}")
         st.markdown(f"**Mean preferred allocation:**")
-        st.markdown(f"  - Equity: {st.session_state.clients_df['pref_equity'].mean():.0f}%")
-        st.markdown(f"  - Bonds: {st.session_state.clients_df['pref_bonds'].mean():.0f}%")
-        st.markdown(f"  - Alternatives: {st.session_state.clients_df['pref_alts'].mean():.0f}%")
-        st.markdown(f"  - Cash: {st.session_state.clients_df['pref_cash'].mean():.0f}%")
-        st.markdown(f"Average sum of preferred allocations: {st.session_state.clients_df[['pref_equity', 'pref_bonds', 'pref_alts', 'pref_cash']].sum(axis=1).mean():.1f}")
-        
+        st.markdown(
+            f"  - Equity: {st.session_state.clients_df['pref_equity'].mean():.0f}%")
+        st.markdown(
+            f"  - Bonds: {st.session_state.clients_df['pref_bonds'].mean():.0f}%")
+        st.markdown(
+            f"  - Alternatives: {st.session_state.clients_df['pref_alts'].mean():.0f}%")
+        st.markdown(
+            f"  - Cash: {st.session_state.clients_df['pref_cash'].mean():.0f}%")
+        st.markdown(
+            f"Average sum of preferred allocations: {st.session_state.clients_df[['pref_equity', 'pref_bonds', 'pref_alts', 'pref_cash']].sum(axis=1).mean():.1f}")
+
         st.info("The data covers a broad range of client ages, income levels, and net worths, ensuring diverse scenarios for testing. The mean preferred asset allocations are broadly consistent with typical diversified portfolios, providing a solid foundation for evaluating personalization.")
 
 # Page: 2. Client Segmentation
@@ -159,32 +195,54 @@ elif st.session_state.current_page == "2. Client Segmentation":
     """)
 
     st.markdown(r"The mathematical concept behind K-Means clustering is to partition $N$ observations into $K$ clusters, where each observation belongs to the cluster with the nearest mean (centroid). The objective function, which K-Means tries to minimize, is the sum of squared distances between each point and its assigned cluster centroid:")
-    st.markdown(r"$$ J = \sum_{{i=1}}^{{N}} \sum_{{k=1}}^{{K}} w_{{ik}} ||x_i - \mu_k||^2 $$")
-    st.markdown(r"where $x_i$ represents a client's feature vector, $\mu_k$ is the centroid of cluster $k$, and $w_{{ik}}$ is an indicator variable equal to 1 if client $i$ belongs to cluster $k$ and 0 otherwise. Minimizing $J$ means finding cluster assignments and centroids such that clients within a cluster are as similar as possible, and clients in different clusters are as dissimilar as possible.")
+    st.markdown(
+        r"""
+$$
+J = \sum_{{i=1}}^{{N}} \sum_{{k=1}}^{{K}} w_{{ik}} ||x_i - \mu_k||^2
+$$""")
+    st.markdown(
+        r"where $x_i$ represents a client's feature vector, $\mu_k$ is the centroid of cluster $k$, and $w_{{ik}}$ is an indicator variable equal to 1 if client $i$ belongs to cluster $k$ and 0 otherwise. Minimizing $J$ means finding cluster assignments and centroids such that clients within a cluster are as similar as possible, and clients in different clusters are as dissimilar as possible.")
 
     st.subheader("Perform Client Segmentation")
 
     if not st.session_state.data_generated:
-        st.warning("Please generate client profiles first on the '1. Client Data Generation' page.")
+        st.warning(
+            "Please generate client profiles first on the '1. Client Data Generation' page.")
     else:
+        # Check if cached segmentation data exists
+        cached_data_status = check_data_exists()
+
+        # Auto-load cached segmentation on page load if available and not yet calculated
+        if (cached_data_status['segment_profile'] and cached_data_status['clients_data']
+                and not st.session_state.segments_calculated):
+            segment_profile_df, segment_names = load_segment_profile()
+            clients = load_client_data()
+            if segment_profile_df is not None and segment_names is not None and clients is not None:
+                st.session_state.clients_df = clients
+                st.session_state.segment_profile_df = segment_profile_df
+                st.session_state.SEGMENT_NAMES = segment_names
+                st.session_state.segments_calculated = True
+                st.info(
+                    "✅ Segmentation data loaded from cache. Click 'Recalculate' to recompute segments.")
+
         if st.button("Perform K-Means Client Segmentation"):
             with st.spinner("Clustering clients and generating segments..."):
                 # Ensure clients_df is available
-                clients = st.session_state.clients_df.copy() # Work on a copy
-                
+                clients = st.session_state.clients_df.copy()  # Work on a copy
+
                 # Call clustering logic from source.py
                 feature_cols = st.session_state.feature_cols
                 scaler = StandardScaler()
                 X_scaled = scaler.fit_transform(clients[feature_cols])
-                
+
                 kmeans = KMeans(n_clusters=5, random_state=42, n_init=10)
                 clients['segment'] = kmeans.fit_predict(X_scaled)
-                
+
                 pca = PCA(n_components=2)
                 X_pca = pca.fit_transform(X_scaled)
                 clients['pca_1'] = X_pca[:, 0]
                 clients['pca_2'] = X_pca[:, 1]
-                
+
                 SEGMENT_NAMES = {
                     0: 'Young Aggressive Accumulators',
                     1: 'Mid-Career Balanced Families',
@@ -193,10 +251,14 @@ elif st.session_state.current_page == "2. Client Segmentation":
                     4: 'Retired Income Seekers'
                 }
                 clients['segment_name'] = clients['segment'].map(SEGMENT_NAMES)
-                
-                st.session_state.clients_df = clients # Update session state with segmented data
-                st.session_state.SEGMENT_NAMES = SEGMENT_NAMES # Store SEGMENT_NAMES
-                
+
+                # Update session state with segmented data
+                st.session_state.clients_df = clients
+                st.session_state.SEGMENT_NAMES = SEGMENT_NAMES  # Store SEGMENT_NAMES
+
+                # Save the updated clients data with segments
+                save_client_data(clients)
+
                 # Prepare segment_profile_df
                 segment_profiles = {}
                 for seg_id in sorted(clients['segment'].unique()):
@@ -215,20 +277,29 @@ elif st.session_state.current_page == "2. Client Segmentation":
                         'Preferred Alts': f"{seg_data['pref_alts'].mean():.0f}%",
                         'Preferred Cash': f"{seg_data['pref_cash'].mean():.0f}%"
                     }
-                segment_profile_df = pd.DataFrame.from_dict(segment_profiles, orient='index')
+                segment_profile_df = pd.DataFrame.from_dict(
+                    segment_profiles, orient='index')
                 segment_profile_df.index.name = 'Segment ID'
-                segment_profile_df['Segment Name'] = segment_profile_df.index.map(SEGMENT_NAMES)
-                st.session_state.segment_profile_df = segment_profile_df[['Segment Name'] + [col for col in segment_profile_df.columns if col != 'Segment Name']]
+                segment_profile_df['Segment Name'] = segment_profile_df.index.map(
+                    SEGMENT_NAMES)
+                st.session_state.segment_profile_df = segment_profile_df[[
+                    'Segment Name'] + [col for col in segment_profile_df.columns if col != 'Segment Name']]
+
+                # Save segment profile
+                save_segment_profile(
+                    st.session_state.segment_profile_df, SEGMENT_NAMES)
 
                 st.session_state.segments_calculated = True
-            st.success("Client segmentation complete!")
+            st.success("Client segmentation complete and saved!")
 
         if st.session_state.segments_calculated:
             st.subheader("Client Segments via PCA-reduced K-Means Clustering")
             # Generate and display PCA plot
             fig, ax = plt.subplots(figsize=(10, 7))
-            sns.scatterplot(x='pca_1', y='pca_2', hue='segment_name', data=st.session_state.clients_df, palette='viridis', s=50, alpha=0.7, ax=ax)
-            ax.set_title('Client Segments via PCA-reduced K-Means Clustering (V1)')
+            sns.scatterplot(x='pca_1', y='pca_2', hue='segment_name',
+                            data=st.session_state.clients_df, palette='viridis', s=50, alpha=0.7, ax=ax)
+            ax.set_title(
+                'Client Segments via PCA-reduced K-Means Clustering (V1)')
             ax.set_xlabel('Principal Component 1')
             ax.set_ylabel('Principal Component 2')
             ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
@@ -238,7 +309,7 @@ elif st.session_state.current_page == "2. Client Segmentation":
 
             st.subheader("Segment Profile Table")
             st.dataframe(st.session_state.segment_profile_df)
-            
+
             st.info(f"""
             The K-Means clustering algorithm successfully identified 5 distinct client segments. The PCA plot visually confirms these groupings. From a CFA's perspective, this output is invaluable:
 
@@ -249,7 +320,8 @@ elif st.session_state.current_page == "2. Client Segmentation":
 
 # Page: 3. Allocation Prediction & Comparison
 elif st.session_state.current_page == "3. Allocation Prediction & Comparison":
-    st.header("3. Predicting Personalized Asset Allocations with Multi-Output XGBoost")
+    st.header(
+        "3. Predicting Personalized Asset Allocations with Multi-Output XGBoost")
 
     st.markdown(f"""
     After identifying distinct client segments, the next challenge for Veridian Financial is to deliver personalized asset allocations at scale. Historically, we might have used a simple rule-based "glide path" (e.g., "110 minus age" for equity). However, this one-size-fits-all approach often fails to account for individual client nuances like risk tolerance, specific goals, or net worth, leading to suboptimal or even unsuitable recommendations.
@@ -258,81 +330,236 @@ elif st.session_state.current_page == "3. Allocation Prediction & Comparison":
     """)
 
     st.markdown(r"The Mean Absolute Error (MAE) is chosen as our primary metric to quantify the average magnitude of errors between our predicted allocations and the clients' 'true' preferred allocations. For $N$ clients and $K$ asset classes, the MAE is defined as:")
-    st.markdown(r"$$ MAE = \frac{{1}}{{N \cdot K}} \sum_{{i=1}}^{{N}} \sum_{{k=1}}^{{K}} |w_{{i,k}}^{{\text{{recommended}}}} - w_{{i,k}}^{{\text{{preferred}}}}| $$")
+    st.markdown(
+        r"""
+$$
+MAE = \frac{{1}}{{N \cdot K}} \sum_{{i=1}}^{{N}} \sum_{{k=1}}^{{K}} |w_{{i,k}}^{{\text{{recommended}}}} - w_{{i,k}}^{{\text{{preferred}}}}|
+$$""")
     st.markdown(r"where $w_{{i,k}}^{{\text{{recommended}}}}$ is the recommended allocation for client $i$ in asset class $k$ (either by the ML model or the glide path), and $w_{{i,k}}^{{\text{{preferred}}}}$ is the client's actual preferred allocation. A lower MAE indicates a better fit to client preferences, signifying more effective personalization.")
 
     st.subheader("Train ML Model and Compare to Glide Path")
 
     if not st.session_state.segments_calculated:
-        st.warning("Please perform client segmentation first on the '2. Client Segmentation' page.")
+        st.warning(
+            "Please perform client segmentation first on the '2. Client Segmentation' page.")
     else:
-        if st.button("Train ML Model & Compare Allocations"):
-            with st.spinner("Training ML model and comparing to glide path..."):
-                clients = st.session_state.clients_df
-                feature_cols = st.session_state.feature_cols
-                target_cols = st.session_state.target_cols
+        # Check if cached model and predictions exist
+        cached_data_status = check_data_exists()
 
-                X = clients[feature_cols]
-                Y = clients[target_cols]
+        # Auto-load cached model and predictions on page load if available
+        if (cached_data_status['ml_models'] and cached_data_status['ml_predictions']
+            and cached_data_status['glide_predictions'] and cached_data_status['test_data']
+                and not st.session_state.allocations_predicted):
+            ml_models = load_models()
+            ml_preds = load_predictions("ml_predictions.csv")
+            glide_preds = load_predictions("glide_predictions.csv")
+            X_test, Y_test = load_test_data()
 
-                X_train, X_test, Y_train, Y_test = train_test_split(
-                    X, Y, test_size=0.2, random_state=42)
-                
+            if all(x is not None for x in [ml_models, ml_preds, glide_preds, X_test, Y_test]):
+                st.session_state.ml_models = ml_models
+                st.session_state.ml_preds = ml_preds
+                st.session_state.glide_preds = glide_preds
                 st.session_state.X_test = X_test
                 st.session_state.Y_test = Y_test
 
-                ml_models = {}
-                ml_preds = pd.DataFrame(index=X_test.index)
-
-                for target in target_cols:
-                    model = XGBRegressor(n_estimators=100, max_depth=4, 
-                                         learning_rate=0.05, random_state=42)
-                    model.fit(X_train, Y_train[target])
-                    ml_preds[target] = model.predict(X_test)
-                    ml_models[target] = model
-
-                ml_preds = ml_preds.clip(lower=0)
-                ml_preds = ml_preds.div(ml_preds.sum(axis=1), axis=0) * 100
-                
-                st.session_state.ml_preds = ml_preds
-                st.session_state.ml_models = ml_models
-
-                # Glide path calculation using source.py function
-                glide_preds = X_test.apply(glide_path, axis=1)
-                st.session_state.glide_preds = glide_preds
-
+                # Recalculate MAE metrics
+                target_cols = st.session_state.target_cols
                 ml_mae_total = mean_absolute_error(Y_test, ml_preds)
                 glide_mae_total = mean_absolute_error(Y_test, glide_preds)
 
-                st.subheader("Allocation Prediction Comparison")
-                st.markdown(f"**ML (XGBoost) Total MAE:**     {ml_mae_total:.2f} percentage points")
-                st.markdown(f"**Glide Path Total MAE:**       {glide_mae_total:.2f} percentage points")
-                st.markdown(f"**ML improvement:**             {(1 - ml_mae_total / glide_mae_total) * 100:.0f}% reduction in error")
-
-                st.subheader("Per-asset MAE")
                 per_asset_mae = []
                 for col in target_cols:
                     ml_err = mean_absolute_error(Y_test[col], ml_preds[col])
                     gp_err = mean_absolute_error(Y_test[col], glide_preds[col])
-                    per_asset_mae.append({'Asset Class': col.replace('pref_', '').title(), 'ML MAE': ml_err, 'Glide Path MAE': gp_err})
-                    st.markdown(f"  **{col.replace('pref_', '').title():<10s}**: ML={ml_err:.2f}, Glide={gp_err:.2f}")
-
+                    per_asset_mae.append({'Asset Class': col.replace(
+                        'pref_', '').title(), 'ML MAE': ml_err, 'Glide Path MAE': gp_err})
                 per_asset_mae_df = pd.DataFrame(per_asset_mae)
                 st.session_state.per_asset_mae_df = per_asset_mae_df
-                
-                # Bar chart for MAE comparison
-                fig, ax = plt.subplots(figsize=(10, 6))
-                per_asset_mae_df.set_index('Asset Class').plot(kind='bar', ax=ax, colormap='viridis')
-                ax.set_title('Mean Absolute Error (MAE) Comparison: ML vs. Glide Path (V3)')
-                ax.set_ylabel('Mean Absolute Error (%)')
-                plt.xticks(rotation=45, ha='right')
-                ax.grid(axis='y', linestyle='--', alpha=0.7)
-                plt.tight_layout()
-                st.pyplot(fig)
+
                 st.session_state.allocations_predicted = True
-            st.success("Allocation prediction and comparison complete!")
-        
+                st.info(
+                    "✅ Model and predictions loaded from cache. Models ready to use!")
+
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            if st.button("Train ML Model & Compare Allocations", use_container_width=True):
+                # Check if cached models exist
+                cached_data_status = check_data_exists()
+
+                if (cached_data_status['ml_models'] and cached_data_status['ml_predictions']
+                        and cached_data_status['glide_predictions'] and cached_data_status['test_data']):
+                    # Load from cache instead of training
+                    with st.spinner("Loading models and predictions from cache..."):
+                        ml_models = load_models()
+                        ml_preds = load_predictions("ml_predictions.csv")
+                        glide_preds = load_predictions("glide_predictions.csv")
+                        X_test, Y_test = load_test_data()
+
+                        if all(x is not None for x in [ml_models, ml_preds, glide_preds, X_test, Y_test]):
+                            st.session_state.ml_models = ml_models
+                            st.session_state.ml_preds = ml_preds
+                            st.session_state.glide_preds = glide_preds
+                            st.session_state.X_test = X_test
+                            st.session_state.Y_test = Y_test
+
+                            # Recalculate MAE metrics
+                            target_cols = st.session_state.target_cols
+                            per_asset_mae = []
+                            for col in target_cols:
+                                ml_err = mean_absolute_error(
+                                    Y_test[col], ml_preds[col])
+                                gp_err = mean_absolute_error(
+                                    Y_test[col], glide_preds[col])
+                                per_asset_mae.append({'Asset Class': col.replace(
+                                    'pref_', '').title(), 'ML MAE': ml_err, 'Glide Path MAE': gp_err})
+                            per_asset_mae_df = pd.DataFrame(per_asset_mae)
+                            st.session_state.per_asset_mae_df = per_asset_mae_df
+
+                            st.session_state.allocations_predicted = True
+                            st.success(
+                                "✅ Models and predictions loaded from cache!")
+                else:
+                    # Train new models
+                    with st.spinner("Training ML model and comparing to glide path..."):
+                        clients = st.session_state.clients_df
+                        feature_cols = st.session_state.feature_cols
+                        target_cols = st.session_state.target_cols
+
+                        X = clients[feature_cols]
+                        Y = clients[target_cols]
+
+                        X_train, X_test, Y_train, Y_test = train_test_split(
+                            X, Y, test_size=0.2, random_state=42)
+
+                        st.session_state.X_test = X_test
+                        st.session_state.Y_test = Y_test
+
+                        ml_models = {}
+                        ml_preds = pd.DataFrame(index=X_test.index)
+
+                        for target in target_cols:
+                            model = XGBRegressor(n_estimators=100, max_depth=4,
+                                                 learning_rate=0.05, random_state=42)
+                            model.fit(X_train, Y_train[target])
+                            ml_preds[target] = model.predict(X_test)
+                            ml_models[target] = model
+
+                        ml_preds = ml_preds.clip(lower=0)
+                        ml_preds = ml_preds.div(
+                            ml_preds.sum(axis=1), axis=0) * 100
+
+                        st.session_state.ml_preds = ml_preds
+                        st.session_state.ml_models = ml_models
+
+                        # Glide path calculation using source.py function
+                        glide_preds = X_test.apply(glide_path, axis=1)
+                        st.session_state.glide_preds = glide_preds
+
+                        # Save models and predictions
+                        save_models(ml_models)
+                        save_predictions(ml_preds, "ml_predictions.csv")
+                        save_predictions(glide_preds, "glide_predictions.csv")
+                        save_test_data(X_test, Y_test)
+
+                        per_asset_mae = []
+                        for col in target_cols:
+                            ml_err = mean_absolute_error(
+                                Y_test[col], ml_preds[col])
+                            gp_err = mean_absolute_error(
+                                Y_test[col], glide_preds[col])
+                            per_asset_mae.append({'Asset Class': col.replace(
+                                'pref_', '').title(), 'ML MAE': ml_err, 'Glide Path MAE': gp_err})
+
+                        per_asset_mae_df = pd.DataFrame(per_asset_mae)
+                        st.session_state.per_asset_mae_df = per_asset_mae_df
+
+                        st.session_state.allocations_predicted = True
+                        st.success("✅ Models trained and saved successfully!")
+
+        with col2:
+            if st.button("Retrain", use_container_width=True, help="Force retrain models even if cache exists"):
+                with st.spinner("Retraining ML model and comparing to glide path..."):
+                    clients = st.session_state.clients_df
+                    feature_cols = st.session_state.feature_cols
+                    target_cols = st.session_state.target_cols
+
+                    X = clients[feature_cols]
+                    Y = clients[target_cols]
+
+                    X_train, X_test, Y_train, Y_test = train_test_split(
+                        X, Y, test_size=0.2, random_state=42)
+
+                    st.session_state.X_test = X_test
+                    st.session_state.Y_test = Y_test
+
+                    ml_models = {}
+                    ml_preds = pd.DataFrame(index=X_test.index)
+
+                    for target in target_cols:
+                        model = XGBRegressor(n_estimators=100, max_depth=4,
+                                             learning_rate=0.05, random_state=42)
+                        model.fit(X_train, Y_train[target])
+                        ml_preds[target] = model.predict(X_test)
+                        ml_models[target] = model
+
+                    ml_preds = ml_preds.clip(lower=0)
+                    ml_preds = ml_preds.div(ml_preds.sum(axis=1), axis=0) * 100
+
+                    st.session_state.ml_preds = ml_preds
+                    st.session_state.ml_models = ml_models
+
+                    # Glide path calculation using source.py function
+                    glide_preds = X_test.apply(glide_path, axis=1)
+                    st.session_state.glide_preds = glide_preds
+
+                    # Save models and predictions
+                    save_models(ml_models)
+                    save_predictions(ml_preds, "ml_predictions.csv")
+                    save_predictions(glide_preds, "glide_predictions.csv")
+                    save_test_data(X_test, Y_test)
+
+                    per_asset_mae = []
+                    for col in target_cols:
+                        ml_err = mean_absolute_error(
+                            Y_test[col], ml_preds[col])
+                        gp_err = mean_absolute_error(
+                            Y_test[col], glide_preds[col])
+                        per_asset_mae.append({'Asset Class': col.replace(
+                            'pref_', '').title(), 'ML MAE': ml_err, 'Glide Path MAE': gp_err})
+
+                    per_asset_mae_df = pd.DataFrame(per_asset_mae)
+                    st.session_state.per_asset_mae_df = per_asset_mae_df
+
+                    st.session_state.allocations_predicted = True
+                    st.success("✅ Models retrained and saved successfully!")
+
         if st.session_state.allocations_predicted:
+            # Display results (whether loaded from cache or freshly computed)
+            ml_mae_total = mean_absolute_error(
+                st.session_state.Y_test, st.session_state.ml_preds)
+            glide_mae_total = mean_absolute_error(
+                st.session_state.Y_test, st.session_state.glide_preds)
+
+            st.subheader("Allocation Prediction Comparison")
+            st.markdown(
+                f"**ML (XGBoost) Total MAE:**     {ml_mae_total:.2f} percentage points")
+            st.markdown(
+                f"**Glide Path Total MAE:**       {glide_mae_total:.2f} percentage points")
+            st.markdown(
+                f"**ML improvement:**             {(1 - ml_mae_total / glide_mae_total) * 100:.0f}% reduction in error")
+
+            # Bar chart for MAE comparison
+            fig, ax = plt.subplots(figsize=(10, 6))
+            st.session_state.per_asset_mae_df.set_index('Asset Class').plot(
+                kind='bar', ax=ax, colormap='viridis')
+            ax.set_title(
+                'Mean Absolute Error (MAE) Comparison: ML vs. Glide Path (V3)')
+            ax.set_ylabel('Mean Absolute Error (%)')
+            plt.xticks(rotation=45, ha='right')
+            ax.grid(axis='y', linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            st.pyplot(fig)
+
             st.info(f"""
             The comparison between the Multi-Output XGBoost model and the traditional rule-based glide path clearly demonstrates the significant personalization benefit of the ML approach.
 
@@ -343,7 +570,8 @@ elif st.session_state.current_page == "3. Allocation Prediction & Comparison":
 
 # Page: 4. Suitability Validation
 elif st.session_state.current_page == "4. Suitability Validation":
-    st.header("4. Ensuring Suitability with Rule-Based Validation and Auto-Correction")
+    st.header(
+        "4. Ensuring Suitability with Rule-Based Validation and Auto-Correction")
 
     st.markdown(f"""
     Even with a highly accurate ML model, financial regulations (like FINRA Reg BI and SEC fiduciary standards) and ethical obligations demand that investment recommendations are *suitable* for the client. An ML model might technically optimize for returns, but if it recommends 85% equity to a conservative 70-year-old retiree, it has failed on suitability, regardless of its predictive power.
@@ -354,71 +582,86 @@ elif st.session_state.current_page == "4. Suitability Validation":
     st.subheader("Run Suitability Checks")
 
     if not st.session_state.allocations_predicted:
-        st.warning("Please predict allocations first on the '3. Allocation Prediction & Comparison' page.")
+        st.warning(
+            "Please predict allocations first on the '3. Allocation Prediction & Comparison' page.")
     else:
         if st.button("Run Suitability Checks & Auto-Correct"):
             with st.spinner("Running suitability checks and auto-correcting recommendations..."):
-                ml_preds_corrected = st.session_state.ml_preds.copy() # Work on a copy
+                ml_preds_corrected = st.session_state.ml_preds.copy()  # Work on a copy
                 X_test = st.session_state.X_test
                 clients = st.session_state.clients_df
 
                 n_violations = 0
-                MAX_EQUITY = {1: 30, 2: 50, 3: 70, 4: 85, 5: 95} 
-                
+                MAX_EQUITY = {1: 30, 2: 50, 3: 70, 4: 85, 5: 95}
+
                 log_messages = []
 
                 for idx in X_test.index:
                     alloc = ml_preds_corrected.loc[idx].copy()
                     profile = clients.loc[idx]
-                    
-                    violations = suitability_check(alloc, profile) # Call function from source.py
-                    
+
+                    # Call function from source.py
+                    violations = suitability_check(alloc, profile, MAX_EQUITY)
+
                     if violations:
                         n_violations += 1
                         # Auto-correction logic
                         risk = int(profile['risk_tolerance'])
                         max_eq_allowed = MAX_EQUITY[risk]
-                        
+
                         if alloc['pref_equity'] > max_eq_allowed:
-                            excess_equity = alloc['pref_equity'] - max_eq_allowed
+                            excess_equity = alloc['pref_equity'] - \
+                                max_eq_allowed
                             alloc['pref_equity'] = max_eq_allowed
                             alloc['pref_bonds'] += excess_equity
-                            log_messages.append(f"Client {idx} equity capped from {ml_preds_corrected.loc[idx, 'pref_equity']:.0f}% to {alloc['pref_equity']:.0f}%. Excess reallocated to bonds (Rule: Max equity for risk tolerance).")
-                        
+                            log_messages.append(
+                                f"Client {idx} equity capped from {ml_preds_corrected.loc[idx, 'pref_equity']:.0f}% to {alloc['pref_equity']:.0f}%. Excess reallocated to bonds (Rule: Max equity for risk tolerance).")
+
                         if profile['is_retired'] == 1 and profile['age'] > 60 and alloc['pref_equity'] > 50:
                             excess_equity = alloc['pref_equity'] - 50
                             alloc['pref_equity'] = 50
                             alloc['pref_bonds'] += excess_equity
-                            log_messages.append(f"Client {idx} (retired, age {profile['age']}) equity capped to 50%. Excess reallocated to bonds (Rule: Retired client equity cap).")
-                        
+                            log_messages.append(
+                                f"Client {idx} (retired, age {profile['age']}) equity capped to 50%. Excess reallocated to bonds (Rule: Retired client equity cap).")
+
                         if profile['age'] > 70 and alloc['pref_equity'] > 40:
                             excess_equity = alloc['pref_equity'] - 40
                             alloc['pref_equity'] = 40
                             alloc['pref_bonds'] += excess_equity
-                            log_messages.append(f"Client {idx} (age {profile['age']}) equity capped to 40%. Excess reallocated to bonds (Rule: Older client equity cap).")
+                            log_messages.append(
+                                f"Client {idx} (age {profile['age']}) equity capped to 40%. Excess reallocated to bonds (Rule: Older client equity cap).")
 
-                        current_sum = alloc[['pref_equity', 'pref_bonds', 'pref_alts', 'pref_cash']].sum()
+                        current_sum = alloc[[
+                            'pref_equity', 'pref_bonds', 'pref_alts', 'pref_cash']].sum()
                         if current_sum != 100.0:
                             alloc = alloc / current_sum * 100
-                        
+
                         ml_preds_corrected.loc[idx] = alloc.round(1)
-                
-                st.session_state.ml_preds = ml_preds_corrected # Update session state with corrected predictions
+
+                # Update session state with corrected predictions
+                st.session_state.ml_preds = ml_preds_corrected
                 st.session_state.n_violations_count = n_violations
                 st.session_state.suitability_checked = True
 
+                # Save corrected predictions
+                save_predictions(ml_preds_corrected,
+                                 "ml_predictions_corrected.csv")
+
             st.subheader("Suitability Validation Summary")
             st.markdown(f"**Recommendations tested:** {len(X_test)}")
-            st.markdown(f"**Violations detected:** {st.session_state.n_violations_count} ({st.session_state.n_violations_count/len(X_test)*100:.1f}%)")
-            st.markdown(f"**All violations auto-corrected (equity capped, excess reallocated to bonds)**")
+            st.markdown(
+                f"**Violations detected:** {st.session_state.n_violations_count} ({st.session_state.n_violations_count/len(X_test)*100:.1f}%)")
+            st.markdown(
+                f"**All violations auto-corrected (equity capped, excess reallocated to bonds)**")
 
             if log_messages:
                 st.subheader("Sample Auto-Correction Details:")
-                for msg in log_messages[:5]: # Show first 5 messages
+                for msg in log_messages[:5]:  # Show first 5 messages
                     st.markdown(f"- {msg}")
                 if len(log_messages) > 5:
-                    st.markdown(f"- ... (and {len(log_messages) - 5} more corrections)")
-            
+                    st.markdown(
+                        f"- ... (and {len(log_messages) - 5} more corrections)")
+
             st.info(f"""
             The suitability validation process successfully identified and auto-corrected a percentage of ML-generated recommendations that violated predefined rules. This outcome is crucial for a CFA overseeing a robo-advisor for Veridian Financial.
 
@@ -440,7 +683,8 @@ elif st.session_state.current_page == "5. Client Reporting":
     st.subheader("Generate Report for a Sample Client")
 
     if not st.session_state.suitability_checked:
-        st.warning("Please run suitability checks first on the '4. Suitability Validation' page.")
+        st.warning(
+            "Please run suitability checks first on the '4. Suitability Validation' page.")
     else:
         clients = st.session_state.clients_df
         X_test = st.session_state.X_test
@@ -451,63 +695,70 @@ elif st.session_state.current_page == "5. Client Reporting":
 
         # Select a sample client from X_test to generate a report
         sample_client_indices = X_test.index.tolist()
-        selected_client_idx = st.selectbox("Select a Client ID to generate a report:", sample_client_indices)
+        selected_client_idx = st.selectbox(
+            "Select a Client ID to generate a report:", sample_client_indices)
 
         if st.button("Generate Client Report"):
-            st.subheader(f"Report for Client ID: {selected_client_idx}")
-            
-            client_profile = clients.loc[selected_client_idx]
-            recommended_alloc = ml_preds.loc[selected_client_idx]
-            segment_name = SEGMENT_NAMES.get(client_profile['segment'], f"Segment {client_profile['segment']}")
+            with st.container(border=True):
+                st.subheader(f"Report for Client ID: {selected_client_idx}")
 
-            st.markdown(f"\n{'='*55}")
-            st.markdown(f"**PERSONALIZED INVESTMENT ALLOCATION REPORT**")
-            st.markdown(f"{'='*55}")
+                client_profile = clients.loc[selected_client_idx]
+                recommended_alloc = ml_preds.loc[selected_client_idx]
+                segment_name = SEGMENT_NAMES.get(
+                    client_profile['segment'], f"Segment {client_profile['segment']}")
 
-            st.markdown(f"\n**Client Profile:**")
-            st.markdown(f"  - Age: {client_profile['age']}, Income: ${client_profile['income']:,.0f}, Net Worth: ${client_profile['net_worth']:,.0f}")
-            st.markdown(f"  - Risk Tolerance: {client_profile['risk_tolerance']}/5, Time Horizon: {client_profile['time_horizon']} years")
-            st.markdown(f"  - Client Segment: {segment_name}")
-            st.markdown(f"  - Retired: {'Yes' if client_profile['is_retired'] == 1 else 'No'}, Has Dependents: {'Yes' if client_profile['has_dependents'] == 1 else 'No'}")
+                st.markdown(f"**PERSONALIZED INVESTMENT ALLOCATION REPORT**")
 
-            st.markdown(f"\n**Recommended Allocation:**")
-            for asset in ['pref_equity', 'pref_bonds', 'pref_alts', 'pref_cash']:
-                name = asset.replace('pref_','').title()
-                pct = recommended_alloc[asset]
-                bar = '#' * int(pct / 2)
-                st.markdown(f"  - {name:<12s}: **{pct:5.1f}%** {bar}")
+                st.markdown(f"\n**Client Profile:**")
+                st.markdown(
+                    f"  - Age: {client_profile['age']}, Income: \${client_profile['income']:,.0f}, Net Worth: ${client_profile['net_worth']:,.0f}")
+                st.markdown(
+                    f"  - Risk Tolerance: {client_profile['risk_tolerance']}/5, Time Horizon: {client_profile['time_horizon']} years")
+                st.markdown(f"  - Client Segment: {segment_name}")
+                st.markdown(
+                    f"  - Retired: {'Yes' if client_profile['is_retired'] == 1 else 'No'}, Has Dependents: {'Yes' if client_profile['has_dependents'] == 1 else 'No'}")
 
-            st.markdown(f"\n**Why this allocation:**")
-            # Conceptual SHAP explanation logic
-            drivers = []
-            if client_profile['risk_tolerance'] > 3:
-                drivers.append("your high risk tolerance")
-            elif client_profile['risk_tolerance'] < 3:
-                drivers.append("your lower risk tolerance")
+                st.markdown(f"\n**Recommended Allocation:**")
+                for asset in ['pref_equity', 'pref_bonds', 'pref_alts', 'pref_cash']:
+                    name = asset.replace('pref_', '').title()
+                    pct = recommended_alloc[asset]
+                    bar = '#' * int(pct / 2)
+                    st.markdown(f"  - {name:<12s}: {pct:5.1f}%")
 
-            if client_profile['time_horizon'] > 20:
-                drivers.append("your long investment horizon")
-            elif client_profile['time_horizon'] < 10:
-                drivers.append("your short investment horizon")
+                st.markdown(f"\n**Why this allocation:**")
+                # Conceptual SHAP explanation logic
+                drivers = []
+                if client_profile['risk_tolerance'] > 3:
+                    drivers.append("your high risk tolerance")
+                elif client_profile['risk_tolerance'] < 3:
+                    drivers.append("your lower risk tolerance")
 
-            if client_profile['is_retired'] == 1:
-                drivers.append("your retired status")
-            
-            if client_profile['net_worth'] > 1e6:
-                drivers.append("your high net worth")
+                if client_profile['time_horizon'] > 20:
+                    drivers.append("your long investment horizon")
+                elif client_profile['time_horizon'] < 10:
+                    drivers.append("your short investment horizon")
 
-            if recommended_alloc['pref_equity'] > clients['pref_equity'].mean(): # Compare to the full client data mean
-                equity_direction = "higher"
-            else:
-                equity_direction = "lower"
+                if client_profile['is_retired'] == 1:
+                    drivers.append("your retired status")
 
-            if drivers:
-                st.markdown(f"  - {', '.join(drivers)} contribute to your {equity_direction} equity allocation.")
-            else:
-                st.markdown(f"  - This allocation is tailored to your unique financial profile and goals.")
+                if client_profile['net_worth'] > 1e6:
+                    drivers.append("your high net worth")
 
-            st.markdown(f"\n**Disclosure:** This allocation is AI-assisted and was reviewed for suitability. Past performance does not guarantee future results.")
-            st.markdown(f"{'='*55}")
+                # Compare to the full client data mean
+                if recommended_alloc['pref_equity'] > clients['pref_equity'].mean():
+                    equity_direction = "higher"
+                else:
+                    equity_direction = "lower"
+
+                if drivers:
+                    st.markdown(
+                        f"  - {', '.join(drivers)} contribute to your {equity_direction} equity allocation.")
+                else:
+                    st.markdown(
+                        f"  - This allocation is tailored to your unique financial profile and goals.")
+
+                st.markdown(
+                    f"\n**Disclosure:** This allocation is AI-assisted and was reviewed for suitability. Past performance does not guarantee future results.")
 
         st.info(f"""
         The personalized client allocation reports generated showcase Veridian Financial's commitment to transparency and client understanding.
@@ -541,7 +792,8 @@ elif st.session_state.current_page == "6. Suitability Monitoring & Synthesis":
 
         st.markdown("\n**SUITABILITY MONITORING TRIGGERS (V5)**")
         st.markdown("---")
-        st.markdown("For a modern robo-advisor, continuous monitoring is crucial to ensure ongoing suitability:")
+        st.markdown(
+            "For a modern robo-advisor, continuous monitoring is crucial to ensure ongoing suitability:")
         for trigger, action in triggers.items():
             st.markdown(f"  - **{trigger}**: {action}")
 
@@ -553,25 +805,12 @@ elif st.session_state.current_page == "6. Suitability Monitoring & Synthesis":
         *   **Operational Efficiency**: This framework automates much of the monitoring, allowing advisors to focus on high-value client engagement.
         """)
 
-        st.subheader("Topic 1 Synthesis: AI in Asset Management")
-        st.markdown("\n---")
-        st.markdown("**TOPIC 1 SYNTHESIS: AI IN ASSET MANAGEMENT (V6)**")
-        st.markdown("---")
-        st.markdown("\nThe three cases span the full investment chain of AI applications in finance:")
-        st.markdown("\n  - **D5-T1-C1: ML Stock Selection** (Signal Generation)")
-        st.markdown("    - Alpha generation via nonlinear factor discovery")
-        st.markdown("    - Audience: Institutional PMs, quant analysts")
-        st.markdown("\n  - **D5-T1-C2: AI-Optimized Portfolio Construction** (Portfolio Optimization)")
-        st.markdown("    - From alpha scores to constrained portfolio weights")
-        st.markdown("    - Audience: Portfolio managers, risk officers")
-        st.markdown("\n  - **D5-T1-C3: Robo-Advisor Simulation** (Client Delivery & Suitability)")
-        st.markdown("    - Client segmentation + personalized allocation")
-        st.markdown("    - Audience: Wealth managers, retail advisory")
         st.markdown("\nThis workflow demonstrates the end-to-end impact of AI:")
         st.markdown("  - Signal -> Portfolio -> Client")
         st.markdown("  - Institutional -> Retail")
         st.markdown("  - Alpha -> Allocation -> Suitability")
-        st.markdown("\nVeridian Financial leverages AI at every stage, while ensuring robust governance and client-centricity.")
+        st.markdown(
+            "\nVeridian Financial leverages AI at every stage, while ensuring robust governance and client-centricity.")
 
 # License
 st.caption('''

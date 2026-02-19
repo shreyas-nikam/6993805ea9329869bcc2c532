@@ -116,6 +116,26 @@ Follow the steps sequentially to fully experience the robo-advisor simulation.
 The application's workflow visually represented:
 ![Robo-Advisor Workflow](https://raw.githubusercontent.com/streamlit/docs/main/docs/static/img/workflow_overview.png)
 
+## Data Persistence & Caching
+
+To optimize performance and avoid lengthy model training times, the application implements automatic data caching:
+
+*   **Automatic Caching**: When you generate client data, perform segmentation, or train models, the results are automatically saved to the `cached_data/` directory.
+*   **Automatic Loading**: On subsequent runs or page navigations, the app automatically detects and loads cached data, eliminating the need to regenerate or retrain.
+*   **Smart Button Behavior**: 
+    *   The "Train ML Model & Compare Allocations" button checks for cached models first. If found, it loads them instantly. If not, it trains new models and saves them.
+    *   Use the "Retrain" button to force model retraining even when cached models exist.
+    *   Use the "Clear Cached Data" button to remove all cached files and start fresh.
+
+**Cached Files**:
+*   `clients_data.csv` - Generated client profiles
+*   `segment_profile.csv` & `segment_names.pkl` - Segmentation results
+*   `ml_models.pkl` - Trained XGBoost models
+*   `ml_predictions.csv` - ML model predictions
+*   `glide_predictions.csv` - Glide path predictions
+*   `ml_predictions_corrected.csv` - Suitability-corrected predictions
+*   `X_test.csv` & `Y_test.csv` - Test dataset
+
 ## Technology Stack
 
 *   **Python**: Programming language

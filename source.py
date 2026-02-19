@@ -9,9 +9,16 @@ from xgboost import XGBRegressor
 import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
+import pickle
+import os
+from pathlib import Path
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
+
+# Data persistence directory
+DATA_DIR = Path("cached_data")
+DATA_DIR.mkdir(exist_ok=True)
 
 # --- Global Constants and Configuration ---
 N_CLIENTS_DEFAULT = 5000
@@ -43,6 +50,7 @@ TARGET_COLS = ['pref_equity', 'pref_bonds', 'pref_alts', 'pref_cash']
 
 # --- Data Generation Functions ---
 
+
 def _generate_single_allocation(row: pd.Series) -> pd.Series:
     """
     Helper function to generate a single client's preferred asset allocation
@@ -51,8 +59,9 @@ def _generate_single_allocation(row: pd.Series) -> pd.Series:
     # Base equity based on age and risk
     base_equity = 80 - row['age'] * 0.6 + row['risk_tolerance'] * 8
     base_equity += row['time_horizon'] * 0.5
-    base_equity -= row['is_retired'] * 15 # Retirees typically lower equity
-    base_equity -= row['has_dependents'] * 5 # Dependents might mean slightly less aggressive
+    base_equity -= row['is_retired'] * 15  # Retirees typically lower equity
+    # Dependents might mean slightly less aggressive
+    base_equity -= row['has_dependents'] * 5
 
     # Clip equity to a reasonable range [10%, 95%]
     base_equity = np.clip(base_equity + np.random.normal(0, 5), 10, 95)
@@ -61,19 +70,20 @@ def _generate_single_allocation(row: pd.Series) -> pd.Series:
     bonds = np.clip(100 - base_equity - np.random.uniform(0, 15), 5, 70)
 
     # Alternatives: more for higher risk tolerance and net worth
-    alts = np.clip(np.random.uniform(0, 15) + row['risk_tolerance'] * 2 + (row['net_worth'] / 1e6) * 0.5, 0, 20)
+    alts = np.clip(np.random.uniform(
+        0, 15) + row['risk_tolerance'] * 2 + (row['net_worth'] / 1e6) * 0.5, 0, 20)
 
     # Cash: remaining
     cash = 100 - base_equity - bonds - alts
 
-    if cash < 0: # Ensure no negative cash, adjust bonds if needed
+    if cash < 0:  # Ensure no negative cash, adjust bonds if needed
         bonds += cash
         cash = 0
 
     # Round to 1 decimal place and ensure sum is 100 (or very close)
     total_alloc = base_equity + bonds + alts + cash
     if total_alloc != 100:
-         # Distribute rounding error proportionally
+        # Distribute rounding error proportionally
         base_equity = round(base_equity / total_alloc * 100, 1)
         bonds = round(bonds / total_alloc * 100, 1)
         alts = round(alts / total_alloc * 100, 1)
@@ -94,6 +104,7 @@ def _generate_single_allocation(row: pd.Series) -> pd.Series:
         'pref_cash': round(max(0, cash), 1)
     })
 
+
 def generate_client_data(n_clients: int = N_CLIENTS_DEFAULT, random_seed: int = RANDOM_STATE) -> pd.DataFrame:
     """
     Generates synthetic client data including demographic information and
@@ -112,9 +123,10 @@ def generate_client_data(n_clients: int = N_CLIENTS_DEFAULT, random_seed: int = 
         'age': np.random.randint(22, 75, n_clients),
         'income': np.random.lognormal(11, 0.7, n_clients).astype(int),
         'net_worth': np.random.lognormal(12, 1.2, n_clients).astype(int),
-        'risk_tolerance': np.random.choice([1,2,3,4,5], n_clients,
-                                            p=[0.10, 0.20, 0.35, 0.25, 0.10]), # 1=very conservative, 5=aggressive
-        'time_horizon': np.random.randint(1, 40, n_clients), # years
+        'risk_tolerance': np.random.choice([1, 2, 3, 4, 5], n_clients,
+                                           # 1=very conservative, 5=aggressive
+                                           p=[0.10, 0.20, 0.35, 0.25, 0.10]),
+        'time_horizon': np.random.randint(1, 40, n_clients),  # years
         'has_dependents': np.random.binomial(1, 0.45, n_clients),
         'is_retired': np.random.binomial(1, 0.15, n_clients),
         'tax_bracket': np.random.choice([0.12, 0.22, 0.24, 0.32, 0.37], n_clients)
@@ -125,12 +137,14 @@ def generate_client_data(n_clients: int = N_CLIENTS_DEFAULT, random_seed: int = 
 
     # Ensure allocations sum to 100.0 due to rounding
     alloc_cols = ['pref_equity', 'pref_bonds', 'pref_alts', 'pref_cash']
-    clients_full_df[alloc_cols] = clients_full_df[alloc_cols].div(clients_full_df[alloc_cols].sum(axis=1), axis=0) * 100
+    clients_full_df[alloc_cols] = clients_full_df[alloc_cols].div(
+        clients_full_df[alloc_cols].sum(axis=1), axis=0) * 100
     clients_full_df[alloc_cols] = clients_full_df[alloc_cols].round(1)
 
     return clients_full_df
 
 # --- Client Segmentation Functions ---
+
 
 def perform_client_segmentation(
     clients_df: pd.DataFrame,
@@ -174,6 +188,7 @@ def perform_client_segmentation(
 
     return clients_df, scaler, kmeans, pca, SEGMENT_NAMES
 
+
 def analyze_and_plot_segments(clients_df: pd.DataFrame, segment_names: dict, display_plots: bool = True) -> pd.DataFrame:
     """
     Analyzes and prints profiles for each client segment and generates a PCA plot.
@@ -206,15 +221,20 @@ def analyze_and_plot_segments(clients_df: pd.DataFrame, segment_names: dict, dis
             'Preferred Cash': f"{seg_data['pref_cash'].mean():.0f}%"
         }
 
-        print(f"\nSegment {seg_id} - {segment_names[seg_id]} (n={len(seg_data)}):")
-        print(f"  Avg age: {seg_data['age'].mean():.0f}, Income: ${seg_data['income'].mean():,.0f}, Risk: {seg_data['risk_tolerance'].mean():.1f}/5")
-        print(f"  Time horizon: {seg_data['time_horizon'].mean():.0f}yr, Retired: {seg_data['is_retired'].mean():.0%}, Dependents: {seg_data['has_dependents'].mean():.0%}")
-        print(f"  Preferred: Eq {seg_data['pref_equity'].mean():.0f}%, Bonds {seg_data['pref_bonds'].mean():.0f}%, Alts {seg_data['pref_alts'].mean():.0f}%, Cash {seg_data['pref_cash'].mean():.0f}%")
+        print(
+            f"\nSegment {seg_id} - {segment_names[seg_id]} (n={len(seg_data)}):")
+        print(
+            f"  Avg age: {seg_data['age'].mean():.0f}, Income: ${seg_data['income'].mean():,.0f}, Risk: {seg_data['risk_tolerance'].mean():.1f}/5")
+        print(
+            f"  Time horizon: {seg_data['time_horizon'].mean():.0f}yr, Retired: {seg_data['is_retired'].mean():.0%}, Dependents: {seg_data['has_dependents'].mean():.0%}")
+        print(
+            f"  Preferred: Eq {seg_data['pref_equity'].mean():.0f}%, Bonds {seg_data['pref_bonds'].mean():.0f}%, Alts {seg_data['pref_alts'].mean():.0f}%, Cash {seg_data['pref_cash'].mean():.0f}%")
 
     # Plotting the segments
     if display_plots:
         plt.figure(figsize=(10, 7))
-        sns.scatterplot(x='pca_1', y='pca_2', hue='segment_name', data=clients_df, palette='viridis', s=50, alpha=0.7)
+        sns.scatterplot(x='pca_1', y='pca_2', hue='segment_name',
+                        data=clients_df, palette='viridis', s=50, alpha=0.7)
         plt.title('Client Segments via PCA-reduced K-Means Clustering')
         plt.xlabel('Principal Component 1')
         plt.ylabel('Principal Component 2')
@@ -223,15 +243,19 @@ def analyze_and_plot_segments(clients_df: pd.DataFrame, segment_names: dict, dis
         plt.tight_layout()
         plt.show()
 
-    segment_profile_df = pd.DataFrame.from_dict(segment_profiles, orient='index')
+    segment_profile_df = pd.DataFrame.from_dict(
+        segment_profiles, orient='index')
     segment_profile_df.index.name = 'Segment ID'
-    segment_profile_df['Segment Name'] = segment_profile_df.index.map(segment_names)
-    segment_profile_df = segment_profile_df[['Segment Name'] + [col for col in segment_profile_df.columns if col != 'Segment Name']]
+    segment_profile_df['Segment Name'] = segment_profile_df.index.map(
+        segment_names)
+    segment_profile_df = segment_profile_df[[
+        'Segment Name'] + [col for col in segment_profile_df.columns if col != 'Segment Name']]
     print("\nSegment Profile Table:\n")
     print(segment_profile_df)
     return segment_profile_df
 
 # --- Asset Allocation Modeling Functions ---
+
 
 def train_allocation_models(
     clients_df: pd.DataFrame,
@@ -279,9 +303,10 @@ def train_allocation_models(
     # Normalize ML predictions to sum to 100% for each client
     ml_preds = ml_preds.clip(lower=0)
     ml_preds = ml_preds.div(ml_preds.sum(axis=1), axis=0) * 100
-    ml_preds = ml_preds.round(1) # Round for cleaner display
+    ml_preds = ml_preds.round(1)  # Round for cleaner display
 
     return ml_models, X_test, Y_test, ml_preds, X_train, Y_train
+
 
 def _glide_path_single_client(row: pd.Series) -> pd.Series:
     """
@@ -297,7 +322,7 @@ def _glide_path_single_client(row: pd.Series) -> pd.Series:
     total_alloc = equity + bonds + alts + cash
     if total_alloc != 100:
         diff = 100 - total_alloc
-        equity += diff # Adjust equity for any rounding discrepancies
+        equity += diff  # Adjust equity for any rounding discrepancies
 
     return pd.Series({
         'pref_equity': round(equity, 1),
@@ -305,6 +330,11 @@ def _glide_path_single_client(row: pd.Series) -> pd.Series:
         'pref_alts': round(alts, 1),
         'pref_cash': round(cash, 1)
     })
+
+
+# Public alias for the glide path function
+glide_path = _glide_path_single_client
+
 
 def generate_glide_path_predictions(X_test: pd.DataFrame) -> pd.DataFrame:
     """
@@ -319,6 +349,7 @@ def generate_glide_path_predictions(X_test: pd.DataFrame) -> pd.DataFrame:
     """
     glide_preds = X_test.apply(_glide_path_single_client, axis=1)
     return glide_preds
+
 
 def compare_allocation_models(
     Y_test: pd.DataFrame,
@@ -347,9 +378,11 @@ def compare_allocation_models(
     print("\nALLOCATION PREDICTION COMPARISON")
     print("=" * 55)
     print(f"ML (XGBoost) Total MAE:     {ml_mae_total:.2f} percentage points")
-    print(f"Glide Path Total MAE:       {glide_mae_total:.2f} percentage points")
+    print(
+        f"Glide Path Total MAE:       {glide_mae_total:.2f} percentage points")
     if glide_mae_total > 0:
-        print(f"ML improvement:             {(1 - ml_mae_total / glide_mae_total) * 100:.0f}% reduction in error")
+        print(
+            f"ML improvement:             {(1 - ml_mae_total / glide_mae_total) * 100:.0f}% reduction in error")
     else:
         print("Glide Path MAE is zero, no improvement possible.")
 
@@ -358,14 +391,17 @@ def compare_allocation_models(
     for col in target_cols:
         ml_err = mean_absolute_error(Y_test[col], ml_preds[col])
         gp_err = mean_absolute_error(Y_test[col], glide_preds[col])
-        per_asset_mae.append({'Asset Class': col.replace('pref_', '').title(), 'ML MAE': ml_err, 'Glide Path MAE': gp_err})
-        print(f"  {col.replace('pref_', '').title():<10s}: ML={ml_err:.2f}, Glide={gp_err:.2f}")
+        per_asset_mae.append({'Asset Class': col.replace(
+            'pref_', '').title(), 'ML MAE': ml_err, 'Glide Path MAE': gp_err})
+        print(
+            f"  {col.replace('pref_', '').title():<10s}: ML={ml_err:.2f}, Glide={gp_err:.2f}")
 
     per_asset_mae_df = pd.DataFrame(per_asset_mae)
 
     if display_plots:
         fig, ax = plt.subplots(figsize=(10, 6))
-        per_asset_mae_df.set_index('Asset Class').plot(kind='bar', ax=ax, colormap='viridis')
+        per_asset_mae_df.set_index('Asset Class').plot(
+            kind='bar', ax=ax, colormap='viridis')
         plt.title('Mean Absolute Error (MAE) Comparison: ML vs. Glide Path')
         plt.ylabel('Mean Absolute Error (%)')
         plt.xticks(rotation=45, ha='right')
@@ -376,6 +412,7 @@ def compare_allocation_models(
     return per_asset_mae_df
 
 # --- Suitability Functions ---
+
 
 def suitability_check(allocation: pd.Series, client_profile: pd.Series, max_equity_rules: dict) -> list[str]:
     """
@@ -397,22 +434,28 @@ def suitability_check(allocation: pd.Series, client_profile: pd.Series, max_equi
     retired = client_profile['is_retired']
 
     # 1. Risk tolerance bounds (e.g., Max equity by risk tolerance level)
-    if equity > max_equity_rules.get(risk, 100): # Default to 100 if risk not in rules
-        violations.append(f"Equity {equity:.0f}% exceeds max {max_equity_rules.get(risk, 'N/A')}% for risk tolerance {risk}")
+    # Default to 100 if risk not in rules
+    if equity > max_equity_rules.get(risk, 100):
+        violations.append(
+            f"Equity {equity:.0f}% exceeds max {max_equity_rules.get(risk, 'N/A')}% for risk tolerance {risk}")
 
     # 2. Retirement check: Retirees (age > 60 and is_retired) should have lower equity exposure
     if retired == 1 and age > 60 and equity > 50:
-        violations.append(f"Retired client (Age {age}) with {equity:.0f}% equity (max 50%)")
+        violations.append(
+            f"Retired client (Age {age}) with {equity:.0f}% equity (max 50%)")
 
     # 3. Age check: Older clients (e.g., >70) should have lower equity exposure, regardless of retirement status
     if age > 70 and equity > 40:
-        violations.append(f"Client age {age} with {equity:.0f}% equity (max 40%)")
+        violations.append(
+            f"Client age {age} with {equity:.0f}% equity (max 40%)")
 
     # 4. Minimum diversification: Ensure minimum exposure to bonds or not excessively concentrated in equity
     if equity > 90 or allocation['pref_bonds'] < 5:
-        violations.append("Insufficient diversification (equity > 90% or bonds < 5%)")
+        violations.append(
+            "Insufficient diversification (equity > 90% or bonds < 5%)")
 
     return violations
+
 
 def apply_suitability_and_correct(
     X_test_clients: pd.DataFrame,
@@ -469,18 +512,20 @@ def apply_suitability_and_correct(
             if corrected_equity < current_equity:
                 excess_equity = current_equity - corrected_equity
                 alloc['pref_equity'] = corrected_equity
-                alloc['pref_bonds'] += excess_equity # Reallocate to bonds
-                print(f"  Client {idx}: Equity capped from {original_alloc['pref_equity']:.0f}% to {alloc['pref_equity']:.0f}%. Excess reallocated to bonds.")
+                alloc['pref_bonds'] += excess_equity  # Reallocate to bonds
+                print(
+                    f"  Client {idx}: Equity capped from {original_alloc['pref_equity']:.0f}% to {alloc['pref_equity']:.0f}%. Excess reallocated to bonds.")
 
             # Ensure diversification (simplified: if bonds are still too low after adjustment, move more from equity/alts)
             # This is a simplified auto-correction. In practice, more sophisticated optimization might be used.
-            if alloc['pref_bonds'] < 5 and alloc['pref_equity'] > 5: # If bonds still too low, and there's equity to shift
+            # If bonds still too low, and there's equity to shift
+            if alloc['pref_bonds'] < 5 and alloc['pref_equity'] > 5:
                 bond_shortfall = 5 - alloc['pref_bonds']
-                if alloc['pref_equity'] > bond_shortfall + 5: # Ensure equity doesn't go below 5
+                if alloc['pref_equity'] > bond_shortfall + 5:  # Ensure equity doesn't go below 5
                     alloc['pref_equity'] -= bond_shortfall
                     alloc['pref_bonds'] = 5
-                    print(f"  Client {idx}: Adjusted for min bonds. Equity {alloc['pref_equity']:.0f}%, Bonds {alloc['pref_bonds']:.0f}%.")
-
+                    print(
+                        f"  Client {idx}: Adjusted for min bonds. Equity {alloc['pref_equity']:.0f}%, Bonds {alloc['pref_bonds']:.0f}%.")
 
             # Re-normalize after corrections if sum isn't exactly 100
             current_sum = alloc[target_cols].sum()
@@ -490,10 +535,12 @@ def apply_suitability_and_correct(
             corrected_ml_preds.loc[idx] = alloc.round(1)
 
     print(f"\nRecommendations tested: {len(X_test_clients)}")
-    print(f"Violations detected: {n_violations} ({n_violations/len(X_test_clients)*100:.1f}%)")
+    print(
+        f"Violations detected: {n_violations} ({n_violations/len(X_test_clients)*100:.1f}%)")
     print(f"All detected violations were auto-corrected.")
 
     return corrected_ml_preds
+
 
 def generate_client_report(
     client_idx: int,
@@ -516,21 +563,25 @@ def generate_client_report(
     """
     client_profile = clients_df.loc[client_idx]
     recommended_alloc = ml_preds_df.loc[client_idx]
-    segment_name = segment_names.get(client_profile['segment'], f"Segment {client_profile['segment']}")
+    segment_name = segment_names.get(
+        client_profile['segment'], f"Segment {client_profile['segment']}")
 
     print(f"\n{'='*55}")
     print(f"PERSONALIZED INVESTMENT ALLOCATION REPORT")
     print(f"{'='*55}")
 
     print(f"\nClient Profile:")
-    print(f"  Age: {client_profile['age']}, Income: ${client_profile['income']:,.0f}, Net Worth: ${client_profile['net_worth']:,.0f}")
-    print(f"  Risk Tolerance: {client_profile['risk_tolerance']}/5, Time Horizon: {client_profile['time_horizon']} years")
+    print(
+        f"  Age: {client_profile['age']}, Income: ${client_profile['income']:,.0f}, Net Worth: ${client_profile['net_worth']:,.0f}")
+    print(
+        f"  Risk Tolerance: {client_profile['risk_tolerance']}/5, Time Horizon: {client_profile['time_horizon']} years")
     print(f"  Client Segment: {segment_name}")
-    print(f"  Retired: {'Yes' if client_profile['is_retired'] == 1 else 'No'}, Has Dependents: {'Yes' if client_profile['has_dependents'] == 1 else 'No'}")
+    print(
+        f"  Retired: {'Yes' if client_profile['is_retired'] == 1 else 'No'}, Has Dependents: {'Yes' if client_profile['has_dependents'] == 1 else 'No'}")
 
     print(f"\nRecommended Allocation:")
     for asset in ['pref_equity', 'pref_bonds', 'pref_alts', 'pref_cash']:
-        name = asset.replace('pref_','').title()
+        name = asset.replace('pref_', '').title()
         pct = recommended_alloc[asset]
         bar = '#' * int(pct / 2)
         print(f"  {name:<12s}: {pct:5.1f}% {bar}")
@@ -560,13 +611,14 @@ def generate_client_report(
         equity_direction = "lower"
 
     if drivers:
-        print(f"  Based on {' and '.join(drivers)}, your allocation emphasizes a {equity_direction} equity exposure relative to the average client.")
+        print(
+            f"  Based on {' and '.join(drivers)}, your allocation emphasizes a {equity_direction} equity exposure relative to the average client.")
     else:
         print(f"  This allocation is carefully tailored to your unique financial profile and goals.")
 
-
     print(f"\nDisclosure: This allocation is AI-assisted and has undergone a suitability review.")
     print(f"Past performance does not guarantee future results. Investment involves risk.")
+
 
 def suitability_monitor_framework():
     """
@@ -587,6 +639,7 @@ def suitability_monitor_framework():
     print("For a modern robo-advisor, continuous monitoring is crucial to ensure ongoing suitability:")
     for trigger, action in triggers.items():
         print(f"  - {trigger:<20s}: {action}")
+
 
 def topic_synthesis():
     """Synthesizes the entire Topic 1 workflow: Signal -> Portfolio -> Client."""
@@ -609,30 +662,236 @@ def topic_synthesis():
     print("  Alpha -> Allocation -> Suitability")
     print("\nVeridian Financial leverages AI at every stage, while ensuring robust governance and client-centricity.")
 
+
+# --- Data Persistence Functions ---
+
+def save_client_data(clients_df: pd.DataFrame, filename: str = "clients_data.csv"):
+    """
+    Saves client data to a CSV file.
+
+    Args:
+        clients_df (pd.DataFrame): Client data DataFrame
+        filename (str): Name of the CSV file
+    """
+    filepath = DATA_DIR / filename
+    clients_df.to_csv(filepath, index=True)
+    print(f"Client data saved to {filepath}")
+
+
+def load_client_data(filename: str = "clients_data.csv") -> pd.DataFrame:
+    """
+    Loads client data from a CSV file.
+
+    Args:
+        filename (str): Name of the CSV file
+
+    Returns:
+        pd.DataFrame: Client data DataFrame, or None if file doesn't exist
+    """
+    filepath = DATA_DIR / filename
+    if filepath.exists():
+        clients_df = pd.read_csv(filepath, index_col=0)
+        print(f"Client data loaded from {filepath}")
+        return clients_df
+    return None
+
+
+def save_models(ml_models: dict, filename: str = "ml_models.pkl"):
+    """
+    Saves trained ML models to a pickle file.
+
+    Args:
+        ml_models (dict): Dictionary of trained models
+        filename (str): Name of the pickle file
+    """
+    filepath = DATA_DIR / filename
+    with open(filepath, 'wb') as f:
+        pickle.dump(ml_models, f)
+    print(f"Models saved to {filepath}")
+
+
+def load_models(filename: str = "ml_models.pkl") -> dict:
+    """
+    Loads trained ML models from a pickle file.
+
+    Args:
+        filename (str): Name of the pickle file
+
+    Returns:
+        dict: Dictionary of trained models, or None if file doesn't exist
+    """
+    filepath = DATA_DIR / filename
+    if filepath.exists():
+        with open(filepath, 'rb') as f:
+            ml_models = pickle.load(f)
+        print(f"Models loaded from {filepath}")
+        return ml_models
+    return None
+
+
+def save_predictions(predictions_df: pd.DataFrame, filename: str = "predictions.csv"):
+    """
+    Saves predictions to a CSV file.
+
+    Args:
+        predictions_df (pd.DataFrame): Predictions DataFrame
+        filename (str): Name of the CSV file
+    """
+    filepath = DATA_DIR / filename
+    predictions_df.to_csv(filepath, index=True)
+    print(f"Predictions saved to {filepath}")
+
+
+def load_predictions(filename: str = "predictions.csv") -> pd.DataFrame:
+    """
+    Loads predictions from a CSV file.
+
+    Args:
+        filename (str): Name of the CSV file
+
+    Returns:
+        pd.DataFrame: Predictions DataFrame, or None if file doesn't exist
+    """
+    filepath = DATA_DIR / filename
+    if filepath.exists():
+        predictions_df = pd.read_csv(filepath, index_col=0)
+        print(f"Predictions loaded from {filepath}")
+        return predictions_df
+    return None
+
+
+def save_test_data(X_test: pd.DataFrame, Y_test: pd.DataFrame,
+                   x_filename: str = "X_test.csv", y_filename: str = "Y_test.csv"):
+    """
+    Saves test data to CSV files.
+
+    Args:
+        X_test (pd.DataFrame): Test features
+        Y_test (pd.DataFrame): Test targets
+        x_filename (str): Name of the X_test CSV file
+        y_filename (str): Name of the Y_test CSV file
+    """
+    X_test.to_csv(DATA_DIR / x_filename, index=True)
+    Y_test.to_csv(DATA_DIR / y_filename, index=True)
+    print(
+        f"Test data saved to {DATA_DIR / x_filename} and {DATA_DIR / y_filename}")
+
+
+def load_test_data(x_filename: str = "X_test.csv", y_filename: str = "Y_test.csv") -> tuple:
+    """
+    Loads test data from CSV files.
+
+    Args:
+        x_filename (str): Name of the X_test CSV file
+        y_filename (str): Name of the Y_test CSV file
+
+    Returns:
+        tuple: (X_test, Y_test) DataFrames, or (None, None) if files don't exist
+    """
+    x_path = DATA_DIR / x_filename
+    y_path = DATA_DIR / y_filename
+    if x_path.exists() and y_path.exists():
+        X_test = pd.read_csv(x_path, index_col=0)
+        Y_test = pd.read_csv(y_path, index_col=0)
+        print(f"Test data loaded from {x_path} and {y_path}")
+        return X_test, Y_test
+    return None, None
+
+
+def save_segment_profile(segment_profile_df: pd.DataFrame, segment_names: dict,
+                         profile_filename: str = "segment_profile.csv",
+                         names_filename: str = "segment_names.pkl"):
+    """
+    Saves segment profile data.
+
+    Args:
+        segment_profile_df (pd.DataFrame): Segment profile DataFrame
+        segment_names (dict): Dictionary mapping segment IDs to names
+        profile_filename (str): Name of the profile CSV file
+        names_filename (str): Name of the names pickle file
+    """
+    segment_profile_df.to_csv(DATA_DIR / profile_filename, index=True)
+    with open(DATA_DIR / names_filename, 'wb') as f:
+        pickle.dump(segment_names, f)
+    print(f"Segment profile saved to {DATA_DIR / profile_filename}")
+
+
+def load_segment_profile(profile_filename: str = "segment_profile.csv",
+                         names_filename: str = "segment_names.pkl") -> tuple:
+    """
+    Loads segment profile data.
+
+    Args:
+        profile_filename (str): Name of the profile CSV file
+        names_filename (str): Name of the names pickle file
+
+    Returns:
+        tuple: (segment_profile_df, segment_names) or (None, None) if files don't exist
+    """
+    profile_path = DATA_DIR / profile_filename
+    names_path = DATA_DIR / names_filename
+    if profile_path.exists() and names_path.exists():
+        segment_profile_df = pd.read_csv(profile_path, index_col=0)
+        with open(names_path, 'rb') as f:
+            segment_names = pickle.load(f)
+        print(f"Segment profile loaded from {profile_path}")
+        return segment_profile_df, segment_names
+    return None, None
+
+
+def check_data_exists() -> dict:
+    """
+    Checks which cached data files exist.
+
+    Returns:
+        dict: Dictionary with boolean values for each cached file type
+    """
+    return {
+        'clients_data': (DATA_DIR / "clients_data.csv").exists(),
+        'ml_models': (DATA_DIR / "ml_models.pkl").exists(),
+        'ml_predictions': (DATA_DIR / "ml_predictions.csv").exists(),
+        'glide_predictions': (DATA_DIR / "glide_predictions.csv").exists(),
+        'test_data': (DATA_DIR / "X_test.csv").exists() and (DATA_DIR / "Y_test.csv").exists(),
+        'segment_profile': (DATA_DIR / "segment_profile.csv").exists(),
+        'segment_names': (DATA_DIR / "segment_names.pkl").exists()
+    }
+
+
+def clear_cached_data():
+    """
+    Clears all cached data files.
+    """
+    for file in DATA_DIR.glob("*"):
+        file.unlink()
+    print("All cached data cleared.")
+
+
 # --- Main Execution Block (for demonstration/testing within this file) ---
 if __name__ == "__main__":
-    np.random.seed(RANDOM_STATE) # Ensure overall reproducibility
+    np.random.seed(RANDOM_STATE)  # Ensure overall reproducibility
 
     print(f"--- Generating {N_CLIENTS_DEFAULT} Client Profiles ---")
-    clients_df_full = generate_client_data(n_clients=N_CLIENTS_DEFAULT, random_seed=RANDOM_STATE)
+    clients_df_full = generate_client_data(
+        n_clients=N_CLIENTS_DEFAULT, random_seed=RANDOM_STATE)
     print(f"Generated {N_CLIENTS_DEFAULT} client profiles.")
     print("\nFirst 5 rows of the client data:")
     print(clients_df_full.head())
-    print(f"\nAge range: {clients_df_full['age'].min()}-{clients_df_full['age'].max()}")
+    print(
+        f"\nAge range: {clients_df_full['age'].min()}-{clients_df_full['age'].max()}")
     print(f"Mean preferred allocation: ")
     print(f"  Equity {clients_df_full['pref_equity'].mean():.0f}%,")
     print(f"  Bonds {clients_df_full['pref_bonds'].mean():.0f}%,")
     print(f"  Alts {clients_df_full['pref_alts'].mean():.0f}%,")
     print(f"  Cash {clients_df_full['pref_cash'].mean():.0f}%")
-    print(f"\nAverage sum of preferred allocations: {clients_df_full[TARGET_COLS].sum(axis=1).mean():.1f}")
-
+    print(
+        f"\nAverage sum of preferred allocations: {clients_df_full[TARGET_COLS].sum(axis=1).mean():.1f}")
 
     print(f"\n--- Performing Client Segmentation ({N_CLUSTERS} clusters) ---")
     clients_df_segmented, scaler, kmeans, pca, seg_names = perform_client_segmentation(
         clients_df_full.copy(), FEATURE_COLS, n_clusters=N_CLUSTERS, random_seed=RANDOM_STATE
     )
-    analyze_and_plot_segments(clients_df_segmented, seg_names, display_plots=True)
-
+    analyze_and_plot_segments(clients_df_segmented,
+                              seg_names, display_plots=True)
 
     print("\n--- Training Asset Allocation Models ---")
     ml_models, X_test, Y_test, ml_preds, X_train, Y_train = train_allocation_models(
@@ -642,16 +901,14 @@ if __name__ == "__main__":
     print("\nFirst 5 rows of ML predictions (test set):")
     print(ml_preds.head())
 
-
     print("\n--- Generating Glide Path Predictions ---")
     glide_preds = generate_glide_path_predictions(X_test)
     print("\nFirst 5 rows of Glide Path predictions (test set):")
     print(glide_preds.head())
 
-
     print("\n--- Comparing Allocation Models ---")
-    mae_comparison_df = compare_allocation_models(Y_test, ml_preds, glide_preds, TARGET_COLS, display_plots=True)
-
+    mae_comparison_df = compare_allocation_models(
+        Y_test, ml_preds, glide_preds, TARGET_COLS, display_plots=True)
 
     print("\n--- Applying Suitability Checks and Corrections ---")
     corrected_ml_preds = apply_suitability_and_correct(
@@ -660,28 +917,31 @@ if __name__ == "__main__":
     print("\nFirst 5 rows of ML predictions AFTER suitability corrections (test set):")
     print(corrected_ml_preds.head())
 
-
     print("\n--- Generating Client Reports for Sample Clients ---")
     # Find candidates in the full client dataset
-    young_aggressive_candidates = clients_df_full[(clients_df_full['age'] < 30) & (clients_df_full['risk_tolerance'] == 5)].index
-    retired_conservative_candidates = clients_df_full[(clients_df_full['age'] > 65) & (clients_df_full['is_retired'] == 1) & (clients_df_full['risk_tolerance'] < 3)].index
+    young_aggressive_candidates = clients_df_full[(clients_df_full['age'] < 30) & (
+        clients_df_full['risk_tolerance'] == 5)].index
+    retired_conservative_candidates = clients_df_full[(clients_df_full['age'] > 65) & (
+        clients_df_full['is_retired'] == 1) & (clients_df_full['risk_tolerance'] < 3)].index
 
     # Filter candidates to ensure they are in the test set
-    sample_client_young_idx = young_aggressive_candidates[young_aggressive_candidates.isin(X_test.index)].min() # Use .min() to pick one valid index
-    sample_client_retired_idx = retired_conservative_candidates[retired_conservative_candidates.isin(X_test.index)].min()
+    sample_client_young_idx = young_aggressive_candidates[young_aggressive_candidates.isin(
+        X_test.index)].min()  # Use .min() to pick one valid index
+    sample_client_retired_idx = retired_conservative_candidates[retired_conservative_candidates.isin(
+        X_test.index)].min()
 
     print("\nGenerating report for a Young, Aggressive Client:")
-    generate_client_report(sample_client_young_idx, clients_df_full, corrected_ml_preds, ml_models, FEATURE_COLS, seg_names)
+    generate_client_report(sample_client_young_idx, clients_df_full,
+                           corrected_ml_preds, ml_models, FEATURE_COLS, seg_names)
 
     print("\n" + "="*70 + "\n")
 
     print("Generating report for a Retired, Conservative Client:")
-    generate_client_report(sample_client_retired_idx, clients_df_full, corrected_ml_preds, ml_models, FEATURE_COLS, seg_names)
-
+    generate_client_report(sample_client_retired_idx, clients_df_full,
+                           corrected_ml_preds, ml_models, FEATURE_COLS, seg_names)
 
     print("\n--- Suitability Monitoring Framework ---")
     suitability_monitor_framework()
-
 
     print("\n--- Topic Synthesis ---")
     topic_synthesis()
